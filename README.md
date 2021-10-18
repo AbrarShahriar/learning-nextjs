@@ -1,34 +1,103 @@
-This is a [Next.js](https://nextjs.org/) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+# ROUTING
 
-## Getting Started
+- Entry point to routing is `/` route.
 
-First, run the development server:
+  - `/` route resides in `/pages/index.js`
 
-```bash
-npm run dev
-# or
-yarn dev
-```
+- Create \*.js files to create routes.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+  - `pages/about.js` means `http://localhost:3000/about`.
 
-You can start editing the page by modifying `pages/index.js`. The page auto-updates as you edit the file.
+- Create folders with the route name
 
-[API routes](https://nextjs.org/docs/api-routes/introduction) can be accessed on [http://localhost:3000/api/hello](http://localhost:3000/api/hello). This endpoint can be edited in `pages/api/hello.js`.
+  - ie. `/product` and create `/product/index.js` to create folder based routes for future nested routing implementation.
 
-The `pages/api` directory is mapped to `/api/*`. Files in this directory are treated as [API routes](https://nextjs.org/docs/api-routes/introduction) instead of React pages.
+- To create nested routes,
 
-## Learn More
+  - ie `http://localhost:3000/product/3`, we can do it in 2 ways,
 
-To learn more about Next.js, take a look at the following resources:
+    1.  file based: `[*.js]`. Square brackets are must.
+    2.  folder based: [dirname]. Square brackets are must. In folder based nested routing, the directory structure will look something like this:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+            * /product
+            * index.js
+                * /[id]
+                 * index.js
+                    * /review
+                       * index.js
+                       * [reviewId].js // the name 'reviewId' will be then name we will use in code.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js/) - your feedback and contributions are welcome!
+        We can access these routes via:
 
-## Deploy on Vercel
+            > To watch the main `product` route go to `http://localhost:3000/product`
+            > To watch individual product detail go to `http://localhost:3000/product/3`
+            > To watch each product's review go to `http://localhost:3000/product/3/review/1`
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+  - How to access the query parameters? <br><br>
+    `@React.Component` means wrapped in a React Component. `@` syntax means decorator function.<br>
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/deployment) for more details.
+    ```javascript
+    import { useRouter } from "next/router";
+
+    @React.Component
+    const router = useRouter();
+    const { id, reviewId } = router.query;
+    ```
+
+    We can only access the `reviewId` variable only if we are in this route: `http://localhost:3000/product/3/review/1`
+
+- **Catch All Routes**
+
+  - Suppose we have a scenario where we have routes like these: <br><br>
+    `http://localhost:3000/docs/feature1/concept1`, <br>
+    `http://localhost:3000/docs/feature2/concept2`, <br>
+    `http://localhost:3000/docs/feature3/concept3`, <br>
+    `http://localhost:3000/docs/feature4/concept4`, <br>
+    `http://localhost:3000/docs/feature5/concept5`, <br>
+    `http://localhost:3000/docs/feature6/concept6`, <br>
+    .............................................. <br>
+    `http://localhost:3000/docs/feature$id/concept$id` <br>
+    To manage stuff like this we need something called _Catch All Routes_<br>
+
+  - Create a file/folder with a name like this: `[[...params]](.js)`.
+    Here `params` can be anything but the double square brackets are must.
+  - How to use the parameters?<br>
+
+    Here is an example:
+
+    ```javascript
+    //import the router from next
+    import { useRouter } from "next/router";
+
+    export default function Docs() {
+      // initialize the router
+      const router = useRouter();
+
+      /** get the params.
+       * here the params will return an array with the parameters
+       * it will return null if we are in `/docs/` route
+       * it will return ['feature$id'] for `/docs/feature$id` route
+       * it will return ['feature$id', 'concept$id'] for `/docs/feature$id/concept$id` route
+       */
+      const { params = [] } = router.query;
+
+      // if the params are two, meaning we are in `/docs/feature$id/concept$id`, then the array will be ['feature$id', 'concept$id']
+      if (params.length === 2) {
+        return (
+          <h1>
+            Feature {params[0]} concept {params[1]}
+          </h1>
+        );
+
+        // if the params are one, meaning we are in `/docs/feature$id`, then the array will be ['feature$id']
+      } else if (params.length === 1) {
+        return <h1>Feature {params[0]}</h1>;
+      }
+
+      // if we are in `/docs`, then the `params` will be null
+      return <h1>Docs Page</h1>;
+    }
+    ```
+
+- **Custom 404 page**
+  - Create `404.js` file in `/pages`. This file will replace NEXT's default 404 page.
