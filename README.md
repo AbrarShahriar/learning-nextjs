@@ -62,8 +62,8 @@ export default function PostList(props) {
 // Export an async function called 'getStaticProps' that returns an object
 // The function name is NOT a convention, it must be the same.
 export async function getStaticProps() {
-  // we use fetch api to fetch some data
-  const res = await fetch(`/api_url/posts`);
+  // we use fetch api to fetch some data eg. 100 posts
+  const res = await fetch(`/api_url/posts`); 
 
   // We convert it to JSON
   const data = await res.json();
@@ -97,3 +97,455 @@ export async function getStaticProps() {
 - Access the file system with the `fs` module or query a database in here.
 - You can use API keys or any type of secret keys in here as it is not included in the final bundle.
 - It will run build time.
+
+## Inspecting the build output
+
+After running `npm run build`, the output will be something like this in the terminal:
+
+```javascript
+Page/Routes                       Size     First Load JS
+┌ ○ / 
+├   ^ /*this is the root page*/   1.68 kB        68.3 kB 
+├   /_app                         0 B            66.6 kB
+├ ○ /404                          194 B          66.8 kB
+├ ● /posts (310 ms)               1.71 kB        68.3 kB
++ First Load JS shared by all     66.6 kB // this is required for each route
+  ├ chunks/framework.b97a0e.js    42 kB
+  ├ chunks/main.62b8ca.js         23.3 kB
+  ├ chunks/pages/_app.a40023.js   555 B   // _app.js is a component that wraps every page
+  ├ chunks/webpack.1a8a25.js      729 B
+  └ css/120f2e2270820d49a21f.css  209 B
+
+λ  (Server)  server-side renders at runtime (uses getInitialProps or getServerSideProps)
+○  (Static)  automatically rendered as static HTML (uses no initial props)
+●  (SSG)     automatically generated as static HTML + JSON (uses getStaticProps)
+   (ISR)     incremental static regeneration (uses revalidate in getStaticProps)
+```
+
+The build output will be stored in `.next` folder in the root of the project. But we will focus on the `/server` and `/static` folders.
+
+The `.next` folder structure looks something like this: 
+
+```
+ / 
+ /cache
+ /server
+    /chunks
+    /pages
+        /_app.js
+        /_document.js
+        /_error.js
+        /404.html
+        /500.html
+        /index.html
+        /posts.html
+        /...other
+    /...other
+ /static  
+    /chunks
+        /pages
+        /...other
+    /css
+    /...other
+ /...other   
+```
+
+The files in `/server` folder cant be sent to the client. So how does hydration work in this context??
+
+This is where `/static` folder comes into picture.
+The files in `/static/chunks/pages` can be sent to the client. The files will contain code to hydrate the DOM so that it can be interactive.
+
+#### Let's run our built app
+
+To run our built app we have to serve the code in `.next` folder. To do that run the script `npm start`.
+
+The app will be run on `localhost:3000`. Let's visit the page and look at the network tab on the developer console. 
+
+We should see a `localhost` resource which refers to `/.next/server/pages/index.html`. The other resources are files needed to render the `/` route.
+
+NOTE: The files related to `/posts` route will not be downloaded unless the `/` route contains links to the respective route.
+
+When we visit a route, it's index and chunk file will be downloaded.
+
+NOTE: When we directly visit `/posts` route from the address bar, the `/server/pages/posts.html` is served. And when we go to `/posts` route from a link or through another page, then the `/server/pages/posts.json` and the chunk from `/static/pages/posts/` is served which then builds the UI client-side.
+
+## Dynamic Parameters
+
+Suppose we want routes like these: 
+
+  `/posts/[postId]`
+
+First we will create `/pages/posts/index.html` and write the following code: 
+
+```javascript
+import Link from "next/link";
+
+export default function PostList({ posts }) {
+  return (
+    <div>
+      {posts.map((post) => (
+        <Link key={post.id} href={`/posts/${post.id}`} passHref>
+          <h2>
+            {post.title}
+          </h2>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+export async function getStaticProps() {
+  // returns 100 posts
+  const res = await fetch(`http://jsonplaceholder.typicode.com/posts`);
+
+  const data = await res.json();
+
+  return {
+    props: {
+      // we will slice the array and return 3 posts
+      posts: data.slice(0, 3),
+    },
+  };
+}
+```
+
+When we visit this route we should see the first 3 posts.
+
+Now, for dynamic parameters like `/posts/1`, `/posts/2`, `/posts/3` etc we need to create a `[postId].js` file inside `/posts` and code something like this: 
+
+```javascript
+export default function PostDetail({ post }) {
+  return (
+    <>
+      <h1>{post.title}</h1>
+      <p>{post.id}</p>
+      <p>{post.body}</p>
+    </>
+  );
+}
+
+// this is required for dynamic SSG pages
+// NOTE: Why getStaticPaths?
+/*
+*   For SSG pages, each route is pre-built. But for dynamic SSG pages, we don't know the exact number of pages needed to be pre-rendered.
+*   NEXT doesn't know the possible values for eg 1-1000 for postId. It doesn't know how many pages has to be pre-rendered. So, we need to tell it what values NEXT has to consider while building the app.
+*/
+// NOTE: How?
+/*
+*   Create an async function 'getStaticPaths' and return an object:
+{
+  paths: [
+    {
+      params: { dynamicParamName: 'possibleValue' }
+    }
+  ],
+  fallback: Boolean | 'blocking'
+}
+*/
+export async function getStaticPaths() {
+  /*
+    For this context, we fetched 3 posts so we will have 3 possible values for our dynamic parameter
+  */
+  return {
+    paths: [
+      {
+        params: { postId: '1' }
+      },
+      {
+        params: { postId: '2' }
+      },
+      {
+        params: { postId: '3' }
+      },
+    ],
+    fallback: false,
+  };
+}
+
+export async function getStaticProps(context) {
+  // extract the postId
+  const { params } = context;
+
+  // use it to create dynamic param
+  const res = await fetch(
+    `http://jsonplaceholder.typicode.com/posts/${params.postId}`
+  );
+
+  const data = await res.json();
+
+  return {
+    props: {
+      post: data,
+    },
+  };
+}
+```
+
+#### Let's inspect `getStaticPaths` builds!
+
+After running the build command we should see this in the terminal:
+
+```javascript
+Page/Routes                       Size     First Load JS
+┌ ○ / 
+├   ^ /*this is the root page*/   1.68 kB        68.3 kB 
+├   /_app                         0 B            66.6 kB
+├ ○ /404                          194 B          66.8 kB
+├ ● /posts                        1.71 kB        68.3 kB
+├ ● /posts/[postId]               347 B            67 kB
+├   ├ /posts/1 
+├   ├ /posts/2 
+├   ├ /posts/3 
++ First Load JS shared by all     66.6 kB // this is required for each route
+  ├ chunks/framework.b97a0e.js    42 kB
+  ├ chunks/main.62b8ca.js         23.3 kB
+  ├ chunks/pages/_app.a40023.js   555 B   // _app.js is a component that wraps every page
+  ├ chunks/webpack.1a8a25.js      729 B
+  └ css/120f2e2270820d49a21f.css  209 B
+
+λ  (Server)  server-side renders at runtime (uses getInitialProps or getServerSideProps)
+○  (Static)  automatically rendered as static HTML (uses no initial props)
+●  (SSG)     automatically generated as static HTML + JSON (uses getStaticProps)
+   (ISR)     incremental static regeneration (uses revalidate in getStaticProps)
+```
+
+And inside of `.next` folder, we should see something like this: 
+
+```
+ / 
+ /cache
+ /server
+    /chunks
+    /pages
+        /posts
+            /[postId].js
+            /1.html      <-- pre-built html
+            /1.json      <-- pre-fetched json
+            /2.html
+            /2.json
+            /3.html
+            /3.json
+        /_app.js
+        /_document.js
+        /_error.js
+        /404.html
+        /500.html
+        /index.html
+        /posts.html
+        /...other
+    /...other
+ /static  
+    /chunks
+        /pages
+        /...other
+    /css
+    /...other
+ /...other   
+```
+
+**But wait! what if we have hundreds or even thousands of posts? Will we have to manually add each path to `getStaticPaths`?**
+
+Let's work on that. 
+First go back to `index.js` and remove the slice method from the `data` so that we get all the 100 posts from the API.
+Then go to `[postId].js` and replace the current `getStaticPaths` with this code:
+
+```javascript
+export async function getStaticPaths() {
+  //we get all the posts from the API
+  const res = await fetch(`http://jsonplaceholder.typicode.com/posts`);
+  const data = await res.json();
+
+  // we extract the ids from each post and dynamically create an object to be returned with all the paths
+  const paths = data.map((post) => {
+    return {
+      params: { postId: `${post.id}` },
+    }
+  });
+
+  return {
+    paths,
+    fallback: false,
+  };
+}
+```
+
+And now if we run the build command we should see this in the terminal:
+
+```javascript
+Page/Routes                       Size     First Load JS
+┌ ○ / 
+├   ^ /*this is the root page*/   1.68 kB        68.3 kB 
+├   /_app                         0 B            66.6 kB
+├ ○ /404                          194 B          66.8 kB
+├ ● /posts (310 ms)               1.71 kB        68.3 kB
+├ ● /posts/[postId] (20488 ms)    347 B            67 kB
+├   ├ /posts/51 (841 ms)
+├   ├ /posts/50 (785 ms)
+├   ├ /posts/57 (776 ms)
+├   ├ /posts/65 (686 ms)
+├   ├ /posts/53 (673 ms)
+├   ├ /posts/4 (594 ms)
+├   ├ /posts/12 (589 ms)
+├   └ [+93 more paths]
+└ ● /users                        364 B            67 kB
++ First Load JS shared by all     66.6 kB // this is required for each route
+  ├ chunks/framework.b97a0e.js    42 kB
+  ├ chunks/main.62b8ca.js         23.3 kB
+  ├ chunks/pages/_app.a40023.js   555 B   // _app.js is a component that wraps every page
+  ├ chunks/webpack.1a8a25.js      729 B
+  └ css/120f2e2270820d49a21f.css  209 B
+
+λ  (Server)  server-side renders at runtime (uses getInitialProps or getServerSideProps)
+○  (Static)  automatically rendered as static HTML (uses no initial props)
+●  (SSG)     automatically generated as static HTML + JSON (uses getStaticProps)
+   (ISR)     incremental static regeneration (uses revalidate in getStaticProps)
+```
+
+So, now we are clear about basic dynamic params. But theres still something we need to talk about. And that's the `fallback` key from `getStaticPaths` returned object.
+
+#### Possible Values:
+
+- true
+- false
+- 'blocking'
+
+##### false:
+
+1. The paths returned (suppose 3 paths are returned) will be rendered to HTML at build time eg. '1.html', '2.html', '3.html'.
+2. Paths that are not returned will result in a 404 page eg. visiting '4.html' will throw 404
+
+**When to use false?**
+ 
+- Small number of paths to pre-render
+- New pages aren't added often
+
+##### true:
+
+1. The paths returned (suppose 3 paths are returned) will be rendered to HTML at build time eg. '1.html', '2.html', '3.html'. (same as 'false')
+2. Paths that are not returned will NOT result in a 404 page instead, a "fallback" version of the page will be served eg. visiting '4.html' will NOT throw 404 instead a fallback will be shown
+3. In the background, NEXT will statically generate the requested path HTML and JSON. This includes running `getStaticProps`.
+4. When that's done (point 3), the browser receives the JSON for the generated path. This JSON will be used to swap the fallback version with the receives JSON's data. Kind of like YouTube's skeleton component.
+5. Future requests to that same route will not show the fallback instead it will show the generated JSON from point 3.
+
+Let's see an example to understand better. We will go back to the `[postId].js` file and change a few things:
+
+```javascript
+import { useRouter } from 'next/router';
+
+export default function PostDetail({ post }) {
+  // initialize router
+  const router = useRouter()
+
+  // check if fallback is allowed or not
+  if(router.isFallback) {
+    // if allowed, show the fallback eg. loading screen
+    // right now NEXT is building the page by calling `getStaticProps`
+    return <h1>Loading...</h1>
+  }
+
+  // if fallback is not allowed or NEXT is done building the page show this
+  return (
+    <div className="PostDetail">
+      <h1>{post.title}</h1>
+      <p>{post.id}</p>
+      <p>{post.body}</p>
+    </div>
+  );
+}
+
+export async function getStaticPaths() {
+  return {
+    paths: [
+      {
+        params: { postId: '1' }
+      },
+      {
+        params: { postId: '2' }
+      },
+      {
+        params: { postId: '3' }
+      },
+    ],
+    fallback: true,
+  };
+}
+
+export async function getStaticProps(context) {
+  const { params } = context;
+  const res = await fetch(
+    `http://jsonplaceholder.typicode.com/posts/${params.postId}`
+  );
+
+  const data = await res.json();
+
+  return {
+    props: {
+      post: data,
+    },
+  };
+}
+```
+
+Okay so what if the user visits an unavailable route eg. `/posts/999` and we don't have a 999th post. What should we do then? 
+
+We could show a 404 page. Here's how we do it:
+
+Go to `[postId].js` file and add a few lines of code to check if a post is available or not.
+
+```javascript
+import { useRouter } from 'next/router';
+
+...
+
+export async function getStaticProps(context) {
+  const { params } = context;
+  const res = await fetch(
+    `http://jsonplaceholder.typicode.com/posts/${params.postId}`
+  );
+
+  const data = await res.json();
+
+  /* 
+  if there is not post, we cant access the id key. so we return an object
+  {
+    notFound: Boolean
+  }
+  */
+  if(!data.id) {
+    return {
+      notFound: true
+    }
+  }
+
+  return {
+    props: {
+      post: data,
+    },
+  };
+}
+```
+
+**Another edge case: What if we fetch all the 100 posts and use NEXT's `Link` tag to attach them to the DOM. But we only return 3 paths from `getStaticPaths` and then we visit `/posts/99`??** 
+
+We do have 99th post but we didnt return it in `getStaticPaths`.
+We won't see the fallback because when we fetched 100 posts NEXT saved it in a `posts.json` file and when we visit the `/posts/99` page, NEXT will fetch the data from the `posts.json` file and render it in the UI!  
+
+It also behaves as an infinite scrolling too!
+
+**When to use true?**
+ 
+- Large number of paths to pre-render that depend on data.
+- New pages are added often
+
+##### 'blocking':
+
+1. The paths returned (suppose 3 paths are returned) will be rendered to HTML at build time eg. '1.html', '2.html', '3.html'. (same as false or true)
+2. Paths that are not returned will NOT result in a 404 page instead, on the first request, NEXT will render the page server-side and return the generated HTML. While NEXT is rendering the page, the browser will show loading. (NOTE: this loading state is handled by the browser)
+3. When that's done (point 2), the browser receives the generated HTML. There will be no fallback/loading state
+4. Future requests to that same route will not show the fallback instead it will show the generated HTML from point 2.
+
+**When to use false?**
+ 
+- To avoid layout shifts
+- Large number of paths to pre-render
+- New pages are added often
