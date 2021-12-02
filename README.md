@@ -403,13 +403,13 @@ Page/Routes                       Size     First Load JS
 
 So, now we are clear about basic dynamic params. But theres still something we need to talk about. And that's the `fallback` key from `getStaticPaths` returned object.
 
-#### Possible Values:
+### Possible Values:
 
 - true
 - false
 - 'blocking'
 
-##### false:
+#### false:
 
 1. The paths returned (suppose 3 paths are returned) will be rendered to HTML at build time eg. '1.html', '2.html', '3.html'.
 2. Paths that are not returned will result in a 404 page eg. visiting '4.html' will throw 404
@@ -419,7 +419,7 @@ So, now we are clear about basic dynamic params. But theres still something we n
 - Small number of paths to pre-render
 - New pages aren't added often
 
-##### true:
+#### true:
 
 1. The paths returned (suppose 3 paths are returned) will be rendered to HTML at build time eg. '1.html', '2.html', '3.html'. (same as 'false')
 2. Paths that are not returned will NOT result in a 404 page instead, a "fallback" version of the page will be served eg. visiting '4.html' will NOT throw 404 instead a fallback will be shown
@@ -537,7 +537,7 @@ It also behaves as an infinite scrolling too!
 - Large number of paths to pre-render that depend on data.
 - New pages are added often
 
-##### 'blocking':
+#### 'blocking':
 
 1. The paths returned (suppose 3 paths are returned) will be rendered to HTML at build time eg. '1.html', '2.html', '3.html'. (same as false or true)
 2. Paths that are not returned will NOT result in a 404 page instead, on the first request, NEXT will render the page server-side and return the generated HTML. While NEXT is rendering the page, the browser will show loading. (NOTE: this loading state is handled by the browser)
@@ -549,3 +549,92 @@ It also behaves as an infinite scrolling too!
 - To avoid layout shifts
 - Large number of paths to pre-render
 - New pages are added often
+
+## Issues of static generation
+
+- The build time increases proportionantely with page numbers. The more pages you have, the longer it will take to build the app.
+- The app will fetch the API data build-time, meaning unless you rebuild the app, the data will always be the old data.
+
+To deal with these issues, NEXT intorduced *Incremental Static Regeneration (ISR)*.
+ISR allows us to update static pages after we've built our application.
+
+**How to make use of ISR?**<br>
+
+1. In the `getStaticProps` function's return object `({ props: {...props} })`, we can specify a `revalidate` key. 
+2. The **value** for this key is the **number of seconds after which a page re-generation** can occur.
+
+Let's do some coding!
+We will go to our `[postId].js` file and do a few tweaks:
+
+```javascript
+
+...
+
+export async function getStaticPaths() {
+  const res = await fetch(`http://jsonplaceholder.typicode.com/posts`);
+  const data = await res.json();
+
+  // we will generate only the first product page on build time. The other pages will be statically generated on initial request.
+  return {
+    paths: [ {params: { postId: '1' }} ],
+    fallback: true,
+  };
+}
+
+export async function getStaticProps(context) {
+  const { params } = context;
+  const res = await fetch(
+    `http://jsonplaceholder.typicode.com/posts/${params.postId}`
+  );
+
+  const data = await res.json();
+
+  return {
+    props: {
+      post: data,
+    },
+    // NOTE: this new 'revalidate' key will enable ISR mode.
+    revalidate: 10
+  };
+}
+```
+
+Now if we build and serve the app, we will see the initial data. Nothing fancy right? But wait, there's more.
+
+If we update the data and refresh the page after 10sec, NEXT will regenerate that page and serve it to us. 
+But there's a catch, if we refresh the page even 100 times **BEFORE** 10sec, NEXT will serve the previously built/cached page.
+
+We almost understand the concept of ISR. But there's a confusing behavior that we have to understand to fully grasp the power of ISR.
+
+To understand that, we have to do a little tweak to our code in `[postId].js` file
+
+```javascript
+export async function getStaticProps(context) {
+  
+  ...
+
+  return {
+    props: {
+      post: data,
+    },
+    // NOTE: this new 'revalidate' key will enable ISR mode.
+    revalidate: 30 // <= we increased the refresh time frame
+  };
+```
+
+And now if we build and serve the app, we will see the initial data. But if we update and reload the page after 30sec, we should see the updated data right?
+
+NO :) this is the behavior that confuses most of the developers out there.
+
+So what is actually happening in the background?
+
+NEXT will serve the previously built/cached page while:
+
+1. Regenaration is occuring (it takes little time but still takes time right?!)
+2. Regeneration fails for some reason
+3. There's no change in data.
+
+So, when we update the data and refresh the page exactly after 30sec (say we refresh at the 31.5sec mark), NEXT will be re-generating the page. While it is doing that, NEXT will send the previously built/cached page so that the user doesn't see a blank page.
+
+Revalidation could be of 1sec too. But what if we need realtime data? What if we can't afford having even 1sec delay?
+That's when we learn about the 2nd type of pre-rendering: **Server-side Rendering**
