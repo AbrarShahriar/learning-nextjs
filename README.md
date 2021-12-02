@@ -42,7 +42,7 @@
 
 - data-fetching
 
-## Code!!
+## Static Site Generation (SSG)!!
 
 <p>Let's write some code and then understand line by line what's happening.</p>
 
@@ -638,3 +638,135 @@ So, when we update the data and refresh the page exactly after 30sec (say we ref
 
 Revalidation could be of 1sec too. But what if we need realtime data? What if we can't afford having even 1sec delay?
 That's when we learn about the 2nd type of pre-rendering: **Server-side Rendering**
+
+## Server-side Rendering (SSR)!!
+
+**What?**<br>
+SSR is a form of pre-rendering where the HTML is generated at request time.
+
+NOTE: The HTML is not generated at build-time but at request-time.
+
+  - **Build-Time:** When a user requests a page, NEXT will generate the page and send it to the user. NEXT will also **SAVE** the page in the server for future requests.
+
+  - **Request-Time:** When a user requests a page, NEXT will generate the page and send it to the user. NEXT will **NOT** also save the page in the server for future requests. Instead, the page will be generated on the fly.
+
+**When?**<br>
+SSR is required when we need to fetch data per request and also when we need to fetch personalized data keeping SEO in mind.
+
+**How?**<br>
+Let's do some coding!
+
+Create a new folder in `/pages` called `/news`.
+And we will code this in the `/index.js`:
+
+```javascript
+function NewsList() {
+  return <h1>List of News</h1>
+}
+
+export default NewsList;
+```
+
+But where's the server-side rendering stuff? 
+To use server-side rendering in NEXT, we have to export and `async` function called `getServerSideProps`. This function is almost as same as `getStaticProps`.
+NOTE: Server-side rendering is slower than Static site generation.
+
+So our `/news/index.js` becomes:
+
+```javascript
+function NewsList(props) {
+  return (
+    <>
+      <h1>List of News</h1>
+      {props.articles.map((article) => (
+        <div>
+          <h2>{article.title} | {article.category}</h2>
+        </div>
+      ))}
+    </>
+  );
+}
+
+export default NewsList;
+
+export async function getServerSideProps() {
+  const res = await fetch(`api_url/news`);
+  const data = await res.json();
+
+  return {
+    props: {
+      articles: data
+    },
+  };
+}
+```
+
+Suppose when we visit `/news` route, we see 3 news;
+
+News 1 | sports <br> 
+News 2 | crime <br>
+News 3 | sports <br>
+
+Now, say I want to view news based on specific category. e.g if I visit `/news/sports`, I should see `News 1` and `News 2`. 
+For this, we will create `/pages/news/[category].js` and code this:
+
+```javascript
+export default function NewsByCategory({ articles, category }) {
+  return (
+    <>
+      <h1>{category}</h1>
+      {articles.map((article) => (
+        <h1 key={article.id}>{article.title}</h1>
+      ))}
+    </>
+  );
+}
+
+export async function getServerSideProps(context) {
+  // extract the query parameter
+  const {
+    params: { category },
+  } = context;
+
+  // use the param to fetch data
+  const res = await fetch(
+    `api_url/news?category=${category}`
+  );
+  const data = await res.json();
+
+  return {
+    props: {
+      articles: data,
+      category,
+    },
+  };
+}
+```
+
+If we change the data and refresh the page, we will immediatly see the changes reflected.
+
+### `getServerSideProps` `context`
+
+`getServerSideProps` gives is access to the incoming request which we don't in `getStaticProps`.
+We can access the incoming request through the `context` object.
+
+Let's talk about the `context` object now.
+
+```typescript
+interface context {
+  params,
+  req: LikeExpressHTTPRequestObject,
+  res: LikeExpressHTTPResponseObject,
+  query
+}
+```
+
+Here are some useful methods/props for `req` and `res`:
+
+- **Get Cookies:** `req.header.cookie`
+- **Set Cookies:** `res.setHeader.("Set-Cookie", ['name=value'])`
+- **Query Strings `(?search=value)`:** `query`
+
+## Client-Side Data Fetching
+
+Conventional React data fetching! 
