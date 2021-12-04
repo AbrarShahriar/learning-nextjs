@@ -1,0 +1,15 @@
+GET http://localhost:3000/api
+
+###
+GET http://localhost:3000/api/dashboard
+
+###
+GET http://localhost:3000/api/comments
+
+###
+POST  http://localhost:3000/api/comments
+Content-Type: application/json
+
+{
+    "text": "Hello 4"
+}
